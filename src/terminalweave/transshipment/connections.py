@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from terminalweave.core.clock import ensure_utc
-from terminalweave.core.errors import ValidationError, ConflictError
+from terminalweave.core.errors import ValidationError, ConflictError, NotFoundError
 
 @dataclass(frozen=True)
 class ServiceCall:
@@ -101,3 +101,23 @@ class ConnectionGraph:
         outbound = self.calls[connection.outbound_call]
         ready = inbound.arrival + connection.minimum_transfer + connection.yard_buffer
         return outbound.departure - ready
+
+    def rebook_connection(self, container_id: str, new_outbound_call: str, minimum_transfer: timedelta, yard_buffer: timedelta=timedelta()) -> Connection:
+        """Replace a container's confirmed outbound leg after a rebooking is confirmed.
+
+        Warning evaluation never calls this: a predicted route stays a proposal
+        until an operator confirms it here.
+        """
+        idx = next((i for i, c in enumerate(self.connections) if c.container_id == container_id), None)
+        if idx is None:
+            raise NotFoundError('no confirmed connection for container')
+        previous = self.connections[idx]
+        if new_outbound_call == previous.inbound_call:
+            raise ConflictError('connection cannot loop to same call')
+        if new_outbound_call not in self.calls:
+            raise ValidationError('unknown service call')
+        replacement = Connection(container_id, previous.inbound_call, new_outbound_call, minimum_transfer, yard_buffer)
+        if not self.feasible(replacement):
+            raise ConflictError('minimum connection time cannot be met')
+        self.connections[idx] = replacement
+        return replacement

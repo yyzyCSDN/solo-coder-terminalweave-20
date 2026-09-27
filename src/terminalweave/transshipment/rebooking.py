@@ -24,11 +24,15 @@ class Sailing:
 
 class RebookingPlanner:
 
-    def choose(self, destination: str, ready_at: datetime, teu: int, sailings: list[Sailing], preferred_service: str | None=None, max_wait: timedelta=timedelta(days=7)) -> Sailing:
+    def rank(self, destination: str, ready_at: datetime, teu: int, sailings: list[Sailing], preferred_service: str | None=None, max_wait: timedelta=timedelta(days=7)) -> list[Sailing]:
         ready_at = ensure_utc(ready_at)
         if teu <= 0:
             raise ValidationError('TEU must be positive')
         eligible = [s for s in sailings if s.destination == destination and s.departure >= ready_at and (s.departure - ready_at <= max_wait) and (s.remaining_teu >= teu)]
-        if not eligible:
+        return sorted(eligible, key=lambda s: (0 if preferred_service and s.service == preferred_service else 1, s.departure, -s.remaining_teu, s.sailing_id))
+
+    def choose(self, destination: str, ready_at: datetime, teu: int, sailings: list[Sailing], preferred_service: str | None=None, max_wait: timedelta=timedelta(days=7)) -> Sailing:
+        ranked = self.rank(destination, ready_at, teu, sailings, preferred_service, max_wait)
+        if not ranked:
             raise CapacityError('no eligible rebooking sailing')
-        return min(eligible, key=lambda s: (0 if preferred_service and s.service == preferred_service else 1, s.departure, -s.remaining_teu, s.sailing_id))
+        return ranked[0]
